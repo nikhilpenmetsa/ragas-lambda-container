@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>D3.js Bar Charts</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 20px;
+        }
+        .chart-container {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            margin: 10px;
+            padding: 10px;
+        }
+        .bar {
+            fill: #4CAF50;
+            transition: fill 0.3s ease;
+        }
+        .bar:hover {
+            fill: #45a049;
+        }
+        .axis text {
+            font-size: 12px;
+        }
+        .axis-label {
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .chart-title {
+            font-size: 16px;
+            font-weight: bold;
+            text-align: center;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <script>
+        // D3.js code goes here
+        // Parse the CSV data
+        const data = d3.csvParse(`duration,input_log_temperature,output_log_evaluation_results_faithfulness,output_log_evaluation_results_answer_relevancy,output_log_evaluation_results_context_recall,output_log_evaluation_results_answer_similarity,output_log_evaluation_results_context_precision
+35.27448105812073,0.9,0.7272727272727273,0.7373497038253053,1.0,0.7645576636872551,0.4777777777618519
+36.555753231048584,0.5,NaN,0.6820286481315586,1.0,0.7002671021706093,0.4777777777618519
+39.230557680130005,0.2,0.6153846153846154,0.7373497038253053,1.0,0.8032186586129819,0.4777777777618519`);
+
+        // Convert string values to numbers
+        data.forEach(d => {
+            d.input_log_temperature = +d.input_log_temperature;
+            d.output_log_evaluation_results_faithfulness = +d.output_log_evaluation_results_faithfulness;
+            d.output_log_evaluation_results_answer_relevancy = +d.output_log_evaluation_results_answer_relevancy;
+            d.output_log_evaluation_results_context_recall = +d.output_log_evaluation_results_context_recall;
+            d.output_log_evaluation_results_answer_similarity = +d.output_log_evaluation_results_answer_similarity;
+            d.output_log_evaluation_results_context_precision = +d.output_log_evaluation_results_context_precision;
+        });
+
+        // Set up dimensions for the charts
+        const margin = {top: 40, right: 20, bottom: 50, left: 60};
+        const width = 300 - margin.left - margin.right;
+        const height = 250 - margin.top - margin.bottom;
+
+        // Create scales
+        const x = d3.scaleBand()
+            .range([0, width])
+            .padding(0.1);
+
+        const y = d3.scaleLinear()
+            .range([height, 0]);
+
+        // Define the metrics to create charts for
+        const metrics = [
+            'output_log_evaluation_results_faithfulness',
+            'output_log_evaluation_results_answer_relevancy',
+            'output_log_evaluation_results_context_recall',
+            'output_log_evaluation_results_answer_similarity',
+            'output_log_evaluation_results_context_precision'
+        ];
+
+        // Create a chart for each metric
+        metrics.forEach(metric => {
+            // Create chart container
+            const container = d3.select('body').append('div')
+                .attr('class', 'chart-container');
+
+            // Add chart title
+            container.append('div')
+                .attr('class', 'chart-title')
+                .text(metric.replace(/_/g, ' ').replace('output log evaluation results ', ''));
+
+            // Create SVG element
+            const svg = container.append('svg')
+                .attr('width', width + margin.left + margin.right)
+                .attr('height', height + margin.top + margin.bottom)
+                .append('g')
+                .attr('transform', `translate(${margin.left},${margin.top})`);
+
+            // Set the domain for x and y scales
+            x.domain(data.map(d => d.input_log_temperature));
+            y.domain([0, d3.max(data, d => d[metric]) || 1]);
+
+            // Create the bars
+            svg.selectAll('.bar')
+                .data(data)
+                .enter().append('rect')
+                .attr('class', 'bar')
+                .attr('x', d => x(d.input_log_temperature))
+                .attr('width', x.bandwidth())
+                .attr('y', d => y(d[metric] || 0))
+                .attr('height', d => height - y(d[metric] || 0));
+
+            // Add the x-axis
+            svg.append('g')
+                .attr('class', 'axis')
+                .attr('transform', `translate(0,${height})`)
+                .call(d3.axisBottom(x));
+
+            // Add x-axis label
+            svg.append('text')
+                .attr('class', 'axis-label')
+                .attr('x', width / 2)
+                .attr('y', height + margin.bottom - 10)
+                .style('text-anchor', 'middle')
+                .text('Temperature');
+
+            // Add the y-axis
+            svg.append('g')
+                .attr('class', 'axis')
+                .call(d3.axisLeft(y));
+
+            // Add y-axis label
+            svg.append('text')
+                .attr('class', 'axis-label')
+                .attr('transform', 'rotate(-90)')
+                .attr('x', -height / 2)
+                .attr('y', -margin.left + 15)
+                .style('text-anchor', 'middle')
+                .text('Value');
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+duration,input_log_temperature,output_log_evaluation_results_faithfulness,output_log_evaluation_results_answer_relevancy,output_log_evaluation_results_context_recall,output_log_evaluation_results_answer_similarity,output_log_evaluation_results_context_precision
+35.27448105812073,0.9,0.7272727272727273,0.7373497038253053,1.0,0.7645576636872551,0.4777777777618519
+36.555753231048584,0.5,NaN,0.6820286481315586,1.0,0.7002671021706093,0.4777777777618519
+39.230557680130005,0.2,0.6153846153846154,0.7373497038253053,1.0,0.8032186586129819,0.4777777777618519

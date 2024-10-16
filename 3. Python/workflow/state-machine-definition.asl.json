@@ -1,0 +1,26 @@
+{
+    "Comment": "A simple Step Function to invoke a Lambda function",
+    "StartAt": "InvokeLambda",
+    "States": {
+        "InvokeLambda": {
+            "Type": "Task",
+            "Resource": "${LambdaFunction.Arn}",
+            "Parameters": {
+                "input.$": "$",
+                "experiment_description.$": "$.experiment_description",
+                "experiment_param.$": "$.experiment_param",
+                "application_name.$": "$.application_name",
+                "kb_id.$": "$.kb_id",
+                "gen_model_id.$": "$.gen_model_id",
+                "judge_model_id.$": "$.judge_model_id",
+                "embed_model_id.$": "$.embed_model_id",
+                "max_token.$": "$.max_token",
+                "temperature.$": "$.temperature",
+                "top_p.$": "$.top_p",
+                "num_retriever_results.$": "$.num_retriever_results",
+                "custom_tag.$": "$.custom_tag"
+            },
+            "End": true
+        }
+    }
+}

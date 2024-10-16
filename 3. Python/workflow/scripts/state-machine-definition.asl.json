@@ -1,0 +1,232 @@
+{
+  "Comment": "A Step Function to invoke a Lambda function based on experiment_param",
+  "StartAt": "Benchmark mode or performance drift check mode?",
+  "States": {
+    "Benchmark mode or performance drift check mode?": {
+      "Type": "Choice",
+      "Choices": [
+          {
+            "And": [
+              {
+                "Variable": "$.experiment_param",
+                "StringEquals": "kb_id"
+              },
+              {
+                "Variable": "$.runMode",
+                "StringEquals": "benchmark"
+              }
+            ],
+            "Next": "Evaluate different Knowledge Bases"
+          },
+          {
+            "And": [
+              {
+                "Variable": "$.experiment_param",
+                "StringEquals": "temperature"
+              },
+              {
+                "Variable": "$.runMode",
+                "StringEquals": "benchmark"
+              }
+            ],
+            "Next": "Evaluate different temperatures of the model"
+          },
+          {
+            "Variable": "$.runMode",
+            "StringEquals": "validation",
+            "Next": "InvokeLambdaDefault"
+          }
+        ],
+        "Default": "InvokeLambdaDefault"
+      },
+
+    "Evaluate different Knowledge Bases": {
+      "Type": "Map",
+      "ItemsPath": "$.kb_id",
+      "Iterator": {
+        "StartAt": "InvokeLambdaKbId",
+        "States": {
+          "InvokeLambdaKbId": {
+            "Type": "Task",
+            "Resource": "${LambdaFunction.Arn}",
+            "Parameters": {
+              "execution_name.$": "$$.Execution.Name",
+              "experiment_description.$": "$$.Execution.Input.experiment_description",
+              "runMode.$": "$$.Execution.Input.runMode",
+              "experiment_param.$": "$$.Execution.Input.experiment_param",
+              "application_name.$": "$$.Execution.Input.application_name",
+              "kb_id.$": "$",
+              "gen_model_id.$": "$$.Execution.Input.gen_model_id",
+              "judge_model_id.$": "$$.Execution.Input.judge_model_id",
+              "embed_model_id.$": "$$.Execution.Input.embed_model_id",
+              "max_token.$": "$$.Execution.Input.max_token",
+              "temperature.$": "$$.Execution.Input.temperature[0]",
+              "top_p.$": "$$.Execution.Input.top_p",
+              "num_retriever_results.$": "$$.Execution.Input.num_retriever_results",
+              "custom_tag.$": "$$.Execution.Input.custom_tag"
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "Wait for Firehose to deliver to S3"
+    },
+    "Evaluate different temperatures of the model": {
+      "Type": "Map",
+      "ItemsPath": "$.temperature",
+      "Iterator": {
+        "StartAt": "InvokeLambdaTemperature",
+        "States": {
+          "InvokeLambdaTemperature": {
+            "Type": "Task",
+            "Resource": "${LambdaFunction.Arn}",
+            "Parameters": {
+              "execution_name.$": "$$.Execution.Name",
+              "experiment_description.$": "$$.Execution.Input.experiment_description",
+              "runMode.$": "$$.Execution.Input.runMode",
+              "experiment_param.$": "$$.Execution.Input.experiment_param",
+              "application_name.$": "$$.Execution.Input.application_name",
+              "kb_id.$": "$$.Execution.Input.kb_id[0]",
+              "gen_model_id.$": "$$.Execution.Input.gen_model_id",
+              "judge_model_id.$": "$$.Execution.Input.judge_model_id",
+              "embed_model_id.$": "$$.Execution.Input.embed_model_id",
+              "max_token.$": "$$.Execution.Input.max_token",
+              "temperature.$": "$",
+              "top_p.$": "$$.Execution.Input.top_p",
+              "num_retriever_results.$": "$$.Execution.Input.num_retriever_results",
+              "custom_tag.$": "$$.Execution.Input.custom_tag"
+            },
+            "End": true
+          }
+        }
+      },
+      "Next": "Wait for Firehose to deliver to S3"
+    },
+    "Wait for Firehose to deliver to S3": {
+      "Type": "Wait",
+      "Seconds": 120,
+      "Next": "StartCrawler"
+    },
+    "StartCrawler": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Parameters": {
+        "Name": "observability-882641078759-glue-crawler-"
+      },
+      "Next": "GetCrawlerStatus"
+    },
+    "GetCrawlerStatus": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+      "Parameters": {
+        "Name": "observability-882641078759-glue-crawler-"
+      },
+      "Next": "CheckCrawlerStatus"
+    },
+    "CheckCrawlerStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Crawler.State",
+          "StringEquals": "RUNNING",
+          "Next": "WaitForCrawler"
+        }
+      ],
+      "Default": "CrawlerComplete"
+    },
+    "WaitForCrawler": {
+      "Type": "Wait",
+      "Seconds": 30,
+      "Next": "GetCrawlerStatus"
+    },
+    "CrawlerComplete": {
+      "Type": "Pass",
+      "Next": "GenerateReport"
+    },
+
+    "GenerateReport": {
+      "Type": "Task",
+      "Resource": "${ReportingLambdaFunction.Arn}",
+      "Parameters": {
+        "input.$": "$"
+      },
+      "End": true
+    },
+    "InvokeLambdaDefault": {
+      "Type": "Task",
+      "Resource": "${LambdaFunction.Arn}",
+      "Parameters": {
+        "execution_name.$": "$$.Execution.Name",
+        "experiment_description.$": "$.experiment_description",
+        "runMode.$": "$.runMode",
+        "experiment_param.$": "$.experiment_param",
+        "application_name.$": "$.application_name",
+        "kb_id.$": "$.kb_id",
+        "gen_model_id.$": "$.gen_model_id",
+        "judge_model_id.$": "$.judge_model_id",
+        "embed_model_id.$": "$.embed_model_id",
+        "max_token.$": "$.max_token",
+        "temperature.$": "$.temperature",
+        "top_p.$": "$.top_p",
+        "num_retriever_results.$": "$.num_retriever_results",
+        "custom_tag.$": "$.custom_tag"
+      },
+      "Next": "ThresholdCheck",
+      "ResultPath": "$.lambdaResult"
+    },
+    "ThresholdCheck": {
+      "Type": "Task",
+      "Resource": "${ThresholdCheckLambdaFunction.Arn}",
+      "Parameters": {
+        "eval_results.$": "$.lambdaResult",
+        "execution_name.$": "$$.Execution.Name",
+        "experiment_description.$": "$.experiment_description",
+        "runMode.$": "$.runMode",
+        "experiment_param.$": "$.experiment_param",
+        "application_name.$": "$.application_name",
+        "kb_id.$": "$.kb_id",
+        "gen_model_id.$": "$.gen_model_id",
+        "judge_model_id.$": "$.judge_model_id",
+        "embed_model_id.$": "$.embed_model_id",
+        "max_token.$": "$.max_token",
+        "temperature.$": "$.temperature",
+        "top_p.$": "$.top_p",
+        "num_retriever_results.$": "$.num_retriever_results",
+        "custom_tag.$": "$.custom_tag"
+      },              
+      "Next": "CheckThresholdResult",
+      "ResultPath": "$.thresholdCheckResult"
+    },
+    "CheckThresholdResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.thresholdCheckResult.all_metrics_within_thresholds",
+          "StringEquals": "Yes",
+          "Next": "SuccessState"
+        }
+      ],
+      "Default": "AlertUsingSNS"
+    },
+    "AlertUsingSNS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Parameters": {
+        "TopicArn": "${AlertTopic}",
+        "Message": {
+          "default": "Metrics violated thresholds",
+          "email": {
+            "subject": "Threshold Violation Alert",
+            "body.$": "States.Format('Metrics violated thresholds. Details: {}', $.thresholdCheckResult.result_messages)"
+          }
+        }
+      },
+      "End": true
+    },
+    "SuccessState": {
+      "Type": "Pass",
+      "Result": "All metrics within thresholds",
+      "End": true
+    }
+  }
+}

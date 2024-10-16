@@ -1,0 +1,584 @@
+#Create a template for creating a lambda function and step function which invokes that lambda function
+AWSTemplateFormatVersion: 2010-09-09
+Description: Create a template for creating a lambda function and step function which invokes that lambda function
+Parameters:
+  LambdaFunctionName:
+    Type: String
+    Description: Enter the name of the lambda function
+  StepFunctionName:
+    Type: String
+    Description: Enter the name of the step function
+  LambdaImageUri:
+    Type: String
+    Description: Enter the URI of the lambda image
+  FirehoseDeliveryStreamName:
+    Type: String
+    Description: Enter the name of the firehose delivery stream
+  GlueCrawlerName:
+    Type: String
+    Description: Enter the name of the Glue crawler that catalogs the firehose stream
+  ApplicationName:
+    Type: String
+    Description: The name of the application
+    Default: EarningsRadarPro
+
+Resources:
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub '${ApplicationName}-AlertTopic'
+
+  GroundTruthS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'ground-truth-${AWS::AccountId}-${AWS::Region}'
+
+  AppGenAIEvalThresholdMetrics:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/AppGenAIEvalThresholdMetrics/${ApplicationName}'
+      Type: String
+      Value: !Sub |
+        {
+          "faithfulness": 0.8,
+          "answer_relevancy": 0.7,
+          "context_recall": 0.6,
+          "context_precision": 0.5
+        }
+      Description: !Sub 'Application-specific thresholds for GenAI evaluation metrics for ${ApplicationName}'
+
+  ThresholdCheckLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub '${ApplicationName}-ThresholdCheck'
+      Handler: index.handler
+      Role: !GetAtt ThresholdCheckLambdaExecutionRole.Arn
+      Environment:
+        Variables:
+          AppGenAIEvalThresholdMetrics: !Ref AppGenAIEvalThresholdMetrics
+
+      Code:
+        ZipFile: |
+          import os
+          import json
+          import boto3
+          from botocore.exceptions import ClientError
+
+          app_eval_threshold_metrics = os.environ.get('AppGenAIEvalThresholdMetrics')
+
+          def get_ssm_parameter(parameter_name):
+            #ssm_client = boto3.Session(profile_name='hub-account').client('ssm')
+            ssm_client = boto3.client('ssm')
+            
+            try:
+                response = ssm_client.get_parameter(
+                    Name=parameter_name,
+                    WithDecryption=True  # Set to True if it's a SecureString
+                )
+                value_string = response['Parameter']['Value']
+                parameter_dict = json.loads(value_string)
+                return parameter_dict
+          
+            except ClientError as e:
+                print(f"An error occurred: {e}")
+                return None
+
+          def check_all_metrics_pass_thresholds(eval_results, threshold_metrics):
+              all_metrics_passed = True
+              result_messages = []
+
+              for result in eval_results:
+                  gt_id = result.get('gt_id', 'Unknown')  # Get the gt_id, or 'Unknown' if it doesn't exist
+                  result_metrics = {k: v for k, v in result.items() if k != 'gt_id'}
+
+                  for metric, threshold in threshold_metrics.items():
+                      if metric not in result_metrics:
+                          message = f"Warning: Metric '{metric}' not found in evaluation result (gt_id: {gt_id})"
+                          print(message)
+                          result_messages.append(message)
+                          all_metrics_passed = False
+                      elif result_metrics[metric] < threshold:
+                          message = f"Metric '{metric}' failed: {result_metrics[metric]} < {threshold} (gt_id: {gt_id})"
+                          print(message)
+                          result_messages.append(message)
+                          all_metrics_passed = False
+              return all_metrics_passed, result_messages
+
+
+          def handler(event, context):
+              # Add your Lambda function code here
+              print(event)
+              eval_results = event.get('eval_results', [])
+              threshold_metrics = get_ssm_parameter(app_eval_threshold_metrics)
+
+              all_metrics_passed, result_messages = check_all_metrics_pass_thresholds(eval_results, threshold_metrics)
+              
+              all_metrics_within_thresholds="No"
+              if all_metrics_passed:
+                  print("All metrics passed their thresholds")
+                  all_metrics_within_thresholds="Yes"
+              else:
+                  print("Some metrics failed to meet their thresholds")
+                  all_metrics_within_thresholds="No"
+
+              return {
+                  'all_metrics_within_thresholds': all_metrics_within_thresholds,
+                  'result_messages' : result_messages
+              }
+      Runtime: python3.12
+      Timeout: 30
+
+  ThresholdCheckLambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  ThresholdCheckLambdaPermission:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: !Sub '${ApplicationName}-ThresholdCheckPolicy'
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/AppGenAIEvalThresholdMetrics/${ApplicationName}'
+      Roles:
+        - !Ref ThresholdCheckLambdaExecutionRole
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - bedrock:*
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - firehose:PutRecord
+                  - firehose:PutRecordBatch
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt GroundTruthS3Bucket.Arn
+                  - !Sub '${GroundTruthS3Bucket.Arn}/*'
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:GetParameters
+                Resource: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/AppGenAIEvalThresholdMetrics/${ApplicationName}'
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 300
+      MemorySize: 1024
+      FunctionName: !Ref LambdaFunctionName
+      Role: !GetAtt LambdaExecutionRole.Arn
+      PackageType: Image
+      Environment:
+        Variables:
+          FirehoseDeliveryStreamName: !Ref FirehoseDeliveryStreamName
+          AppGroundTruthS3Bucket: !Ref GroundTruthS3Bucket
+      Code:
+        ImageUri: !Ref LambdaImageUri
+
+  ReportingLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Timeout: 120
+      MemorySize: 1024
+      FunctionName: ReportingLambdaFunction
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Runtime: python3.12
+      Code:
+        ZipFile: |
+          import json
+          def lambda_handler(event, context):
+              print("event:", event)
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Hello from report gen lambda')
+              }
+
+  ReportingLambdaInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ReportingLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+
+  ReportingLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ReportingLambdaFunction}
+      RetentionInDays: 7
+
+  ReportingLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: ReportingLambdaRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReportingLambdaExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+              - Effect: Allow
+                Action:
+                  - states:ListExecutions
+                Resource: '*'
+
+  ReportingLambdaInvokeStepFunction:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt ReportingLambdaFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: states.amazonaws.com
+
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref StepFunctionName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: 
+                  - !GetAtt LambdaFunction.Arn
+                  - !GetAtt ThresholdCheckLambdaFunction.Arn
+                  - !GetAtt ReportingLambdaFunction.Arn
+              - Effect: Allow
+                Action:
+                  - glue:StartCrawler
+                  - glue:GetCrawler
+                Resource: !Sub 'arn:aws:glue:${AWS::Region}:${AWS::AccountId}:crawler/${GlueCrawlerName}'
+        - PolicyName: SNSPublish
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref AlertTopic
+
+
+  StepFunction:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Ref StepFunctionName
+      RoleArn: !GetAtt StepFunctionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "A workflow to 1. Benchmark RAG performance across different configurations of an application 2. Validate an application's RAG performance against pre-set thresholds.",
+          "StartAt": "Benchmark mode or validation mode?",
+          "States": {
+            "Benchmark mode or validation mode?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "And": [
+                    {
+                      "Variable": "$.experiment_param",
+                      "StringEquals": "kb_id"
+                    },
+                    {
+                      "Variable": "$.runMode",
+                      "StringEquals": "benchmark"
+                    }
+                  ],
+                  "Next": "Evaluate different Knowledge Bases"
+                },
+                {
+                  "And": [
+                    {
+                      "Variable": "$.experiment_param",
+                      "StringEquals": "temperature"
+                    },
+                    {
+                      "Variable": "$.runMode",
+                      "StringEquals": "benchmark"
+                    }
+                  ],
+                  "Next": "Evaluate different temperatures of the model"
+                },
+                {
+                  "Variable": "$.runMode",
+                  "StringEquals": "validation",
+                  "Next": "Check current application performance"
+                }
+              ],
+              "Default": "Check current application performance"
+            },
+            "Evaluate different Knowledge Bases": {
+              "Type": "Map",
+              "ItemsPath": "$.kb_id",
+              "Iterator": {
+                "StartAt": "Evaluate Knowedge Base",
+                "States": {
+                  "Evaluate Knowedge Base": {
+                    "Type": "Task",
+                    "Resource": "${LambdaFunction.Arn}",
+                    "Parameters": {
+                      "execution_name.$": "$$.Execution.Name",
+                      "experiment_description.$": "$$.Execution.Input.experiment_description",
+                      "runMode.$": "$$.Execution.Input.runMode",
+                      "experiment_param.$": "$$.Execution.Input.experiment_param",
+                      "application_name.$": "$$.Execution.Input.application_name",
+                      "kb_id.$": "$",
+                      "gen_model_id.$": "$$.Execution.Input.gen_model_id",
+                      "judge_model_id.$": "$$.Execution.Input.judge_model_id",
+                      "embed_model_id.$": "$$.Execution.Input.embed_model_id",
+                      "max_token.$": "$$.Execution.Input.max_token",
+                      "temperature.$": "$$.Execution.Input.temperature[0]",
+                      "top_p.$": "$$.Execution.Input.top_p",
+                      "num_retriever_results.$": "$$.Execution.Input.num_retriever_results",
+                      "custom_tag.$": "$$.Execution.Input.custom_tag"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "Next": "Process evaluation metrics for analysis and reporting"
+            },
+            "Evaluate different temperatures of the model": {
+              "Type": "Map",
+              "ItemsPath": "$.temperature",
+              "Iterator": {
+                "StartAt": "Evaluate LLM temperature",
+                "States": {
+                  "Evaluate LLM temperature": {
+                    "Type": "Task",
+                    "Resource": "${LambdaFunction.Arn}",
+                    "Parameters": {
+                      "execution_name.$": "$$.Execution.Name",
+                      "experiment_description.$": "$$.Execution.Input.experiment_description",
+                      "runMode.$": "$$.Execution.Input.runMode",
+                      "experiment_param.$": "$$.Execution.Input.experiment_param",
+                      "application_name.$": "$$.Execution.Input.application_name",
+                      "kb_id.$": "$$.Execution.Input.kb_id[0]",
+                      "gen_model_id.$": "$$.Execution.Input.gen_model_id",
+                      "judge_model_id.$": "$$.Execution.Input.judge_model_id",
+                      "embed_model_id.$": "$$.Execution.Input.embed_model_id",
+                      "max_token.$": "$$.Execution.Input.max_token",
+                      "temperature.$": "$",
+                      "top_p.$": "$$.Execution.Input.top_p",
+                      "num_retriever_results.$": "$$.Execution.Input.num_retriever_results",
+                      "custom_tag.$": "$$.Execution.Input.custom_tag"
+                    },
+                    "End": true
+                  }
+                }
+              },
+              "Next": "Process evaluation metrics for analysis and reporting"
+            },
+            "Process evaluation metrics for analysis and reporting": {
+              "Type": "Parallel",
+              "Branches": [
+                {
+                  "StartAt": "WaitForFirehose",
+                  "States": {
+                    "WaitForFirehose": {
+                      "Type": "Wait",
+                      "Seconds": 120,
+                      "Next": "StartCrawler"
+                    },
+                    "StartCrawler": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+                      "Parameters": {
+                        "Name": "${GlueCrawlerName}"
+                      },
+                      "Next": "GetCrawlerStatus"
+                    },
+                    "GetCrawlerStatus": {
+                      "Type": "Task",
+                      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+                      "Parameters": {
+                        "Name": "${GlueCrawlerName}"
+                      },
+                      "Next": "CheckCrawlerStatus"
+                    },
+                    "CheckCrawlerStatus": {
+                      "Type": "Choice",
+                      "Choices": [
+                        {
+                          "Variable": "$.Crawler.State",
+                          "StringEquals": "RUNNING",
+                          "Next": "WaitForCrawler"
+                        }
+                      ],
+                      "Default": "CrawlerComplete"
+                    },
+                    "WaitForCrawler": {
+                      "Type": "Wait",
+                      "Seconds": 30,
+                      "Next": "GetCrawlerStatus"
+                    },
+                    "CrawlerComplete": {
+                      "Type": "Pass",
+                      "End": true
+                    }
+                  }
+                }
+              ],
+              "End": true
+            },
+            "Check current application performance": {
+              "Type": "Task",
+              "Resource": "${LambdaFunction.Arn}",
+              "Parameters": {
+                "execution_name.$": "$$.Execution.Name",
+                "experiment_description.$": "$.experiment_description",
+                "runMode.$": "$.runMode",
+                "experiment_param.$": "$.experiment_param",
+                "application_name.$": "$.application_name",
+                "kb_id.$": "$.kb_id",
+                "gen_model_id.$": "$.gen_model_id",
+                "judge_model_id.$": "$.judge_model_id",
+                "embed_model_id.$": "$.embed_model_id",
+                "max_token.$": "$.max_token",
+                "temperature.$": "$.temperature",
+                "top_p.$": "$.top_p",
+                "num_retriever_results.$": "$.num_retriever_results",
+                "custom_tag.$": "$.custom_tag"
+              },
+              "Next": "Compare current performance with pre-defined thresholds",
+              "ResultPath": "$.lambdaResult.eval_results"
+            },
+            "Compare current performance with pre-defined thresholds": {
+              "Type": "Task",
+              "Resource": "${ThresholdCheckLambdaFunction.Arn}",
+              "Parameters": {
+                "eval_results.$": "$.lambdaResult.eval_results",
+                "execution_name.$": "$$.Execution.Name",
+                "experiment_description.$": "$.experiment_description",
+                "runMode.$": "$.runMode",
+                "experiment_param.$": "$.experiment_param",
+                "application_name.$": "$.application_name",
+                "kb_id.$": "$.kb_id",
+                "gen_model_id.$": "$.gen_model_id",
+                "judge_model_id.$": "$.judge_model_id",
+                "embed_model_id.$": "$.embed_model_id",
+                "max_token.$": "$.max_token",
+                "temperature.$": "$.temperature",
+                "top_p.$": "$.top_p",
+                "num_retriever_results.$": "$.num_retriever_results",
+                "custom_tag.$": "$.custom_tag"
+              },
+              "Next": "Current performance within thresholds?",
+              "ResultPath": "$.thresholdCheckResult"
+            },
+            "Current performance within thresholds?": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.thresholdCheckResult.all_metrics_within_thresholds",
+                  "StringEquals": "Yes",
+                  "Next": "Yes"
+                }
+              ],
+              "Default": "No - Publish Alert"
+            },
+            "No - Publish Alert": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Parameters": {
+                "TopicArn": "${AlertTopic}",
+                "Message": {
+                  "default": "Metrics violated thresholds",
+                  "email": {
+                    "subject": "Threshold Violation Alert",
+                    "body.$": "States.Format('Metrics violated thresholds. Details: {}', $.thresholdCheckResult.result_messages)"
+                  }
+                }
+              },
+              "End": true
+            },
+            "Yes": {
+              "Type": "Pass",
+              "Result": "All metrics within thresholds",
+              "End": true
+            }
+          }
+        }
+      StateMachineType: STANDARD
+
+#eval_results
+Outputs:
+  LambdaFunctionArn:
+    Description: The ARN of the Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+  StepFunctionArn:
+    Description: The ARN of the Step Function
+    Value: !GetAtt StepFunction.Arn
+  FirehoseDeliveryStreamName:
+    Description: The name of the Firehose delivery stream
+    Value: !Ref FirehoseDeliveryStreamName
+  GlueCrawlerName:
+    Description: The name of the Glue crawler
+    Value: !Ref GlueCrawlerName
+  GroundTruthBucketName:
+    Description: Name of the created S3 bucket for ground truth data
+    Value: !Ref GroundTruthS3Bucket
+  AppGenAIEvalThresholdMetrics:
+    Description: Threshold metrics for AppGenAI evaluation
+    Value: !Ref AppGenAIEvalThresholdMetrics
+    

@@ -1,0 +1,78 @@
+{
+    "ResponseMetadata": {
+        "RequestId": "1e77a6b7-dbea-411a-aac0-c1a9014490b4",
+        "HTTPStatusCode": 200,
+        "HTTPHeaders": {
+            "date": "Wed, 18 Sep 2024 17:27:33 GMT",
+            "content-type": "application/json",
+            "content-length": "3863",
+            "connection": "keep-alive",
+            "x-amzn-requestid": "1e77a6b7-dbea-411a-aac0-c1a9014490b4"
+        },
+        "RetryAttempts": 0
+    },
+    "citations": [
+        {
+            "generatedResponsePart": {
+                "textResponsePart": {
+                    "span": {
+                        "end": 345,
+                        "start": 0
+                    },
+                    "text": "Yes, the owner can have the Qualified Charitable Distribution (QCD) check mailed directly to the charity. To do this, the owner needs to submit a withdrawal form along with a Letter of Instruction (LOI) that specifies the withdrawal is for a QCD. In the LOI, they should provide the name and address of the charity where they want the check sent."
+                }
+            },
+            "retrievedReferences": [
+                {
+                    "content": {
+                        "text": "need to receive a withdrawal  form, not an RMD form.   › In addition to the withdrawal form, they would need to include a LOI that specifies the  withdrawal is for a QCD.   › In the LOI they would provide the name and address of the charity if they would like  the check(s) mailed directly to the charity.   › This will require a medallion signature and the form must be mailed to us   › Tim the Training Specialist's Expert Advice Note: The customer can also choose  to have their QCD check(s) sent to their address of record (aor)."
+                    },
+                    "location": {
+                        "s3Location": {
+                            "uri": "s3://symetra-eba-sharepoint-docs/Intro to RMD Storyboard.pdf"
+                        },
+                        "type": "S3"
+                    },
+                    "metadata": {
+                        "x-amz-bedrock-kb-source-uri": "s3://symetra-eba-sharepoint-docs/Intro to RMD Storyboard.pdf",
+                        "x-amz-bedrock-kb-chunk-id": "1%3A0%3AR5Tm_JEBFNwu4fTJJ0au",
+                        "x-amz-bedrock-kb-data-source-id": "BRA5ER416P"
+                    }
+                }
+            ]
+        },
+        {
+            "generatedResponsePart": {
+                "textResponsePart": {
+                    "span": {
+                        "end": 540,
+                        "start": 347
+                    },
+                    "text": "Alternatively, the owner can choose to have the QCD check(s) sent to their address on record (aor). If the check is sent to the owner's aor, a medallion signature guarantee will not be required."
+                }
+            },
+            "retrievedReferences": [
+                {
+                    "content": {
+                        "text": "customer can also choose  to have their QCD check(s) sent to their address of record (aor). The check will still  be payable to the charity, but a medallion signature guarantee will NOT be  required if sent to the aor.   › The withdrawal can be more or less than their RMD amount but cannot exceed 100k   › They can have it split between multiple charities if they wish   › 1099-R will be generated for the owner, not the charity   55   Article 3205 Required Minimum Distribution (RMD) Qualified Charitable Distributions (QCD)    https://symetrafsc.lightning.force.com/lightning/r/Knowledge__kav/ka03t000000eq58AAA/view      INTERNAL USE ONLY   Scenario 3-Let's Check in with Iris Scenario   Scenario Introduction   Barb, as the owner of a Qualified annuity, calls into the contact center with    some questions for Iris on using her RMD for a Qualified Charitable Distribution    (QCD).   56   What will often  go wrong? What  are the steps to  solve? Show examples,  scenarios, and sandbox  resolutions. Why advise to  go to CSHelps (outline  instructions and trust the  team will handle  correctly)        INTERNAL USE ONLY   Scenario 3 Questions   Barb would like her Required Minimum Distribution (RMD) to be sent to a charity."
+                    },
+                    "location": {
+                        "s3Location": {
+                            "uri": "s3://symetra-eba-sharepoint-docs/Intro to RMD Storyboard.pdf"
+                        },
+                        "type": "S3"
+                    },
+                    "metadata": {
+                        "x-amz-bedrock-kb-source-uri": "s3://symetra-eba-sharepoint-docs/Intro to RMD Storyboard.pdf",
+                        "x-amz-bedrock-kb-chunk-id": "1%3A0%3ASJTm_JEBFNwu4fTJJ0au",
+                        "x-amz-bedrock-kb-data-source-id": "BRA5ER416P"
+                    }
+                }
+            ]
+        }
+    ],
+    "output": {
+        "text": "Yes, the owner can have the Qualified Charitable Distribution (QCD) check mailed directly to the charity. To do this, the owner needs to submit a withdrawal form along with a Letter of Instruction (LOI) that specifies the withdrawal is for a QCD. In the LOI, they should provide the name and address of the charity where they want the check sent. Alternatively, the owner can choose to have the QCD check(s) sent to their address on record (aor). If the check is sent to the owner's aor, a medallion signature guarantee will not be required."
+    },
+    "sessionId": "696d991c-4a09-41ef-ab58-d32eeebf2d30"
+}

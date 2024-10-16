@@ -1,0 +1,99 @@
+#Create a template for creating a lambda function and step function which invokes that lambda function
+AWSTemplateFormatVersion: 2010-09-09
+Description: Create a template for creating a lambda function and step function which invokes that lambda function
+Parameters:
+  LambdaFunctionName:
+    Type: String
+    Description: Enter the name of the lambda function
+  StepFunctionName:
+    Type: String
+    Description: Enter the name of the step function
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: LambdaExecutionRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: LambdaExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Runtime: python3.12
+      Code:
+        ZipFile: |
+          import json
+          
+          def lambda_handler(event, context):
+              print('Event:', json.dumps(event))
+              return {
+                  'statusCode': 200,
+                  'body': json.dumps('Hello from Python Lambda!')
+              }
+
+  StepFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Ref StepFunctionName
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionExecutionPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt LambdaFunction.Arn
+
+  StepFunction:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Ref StepFunctionName
+      RoleArn: !GetAtt StepFunctionRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "A simple Step Function to invoke a Lambda function",
+          "StartAt": "InvokeLambda",
+          "States": {
+            "InvokeLambda": {
+              "Type": "Task",
+              "Resource": "${LambdaFunction.Arn}",
+              "End": true
+            }
+          }
+        }
+      StateMachineType: STANDARD
+
+Outputs:
+  LambdaFunctionArn:
+    Description: The ARN of the Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+  StepFunctionArn:
+    Description: The ARN of the Step Function
+    Value: !GetAtt StepFunction.Arn
